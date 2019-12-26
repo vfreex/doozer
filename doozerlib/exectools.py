@@ -121,8 +121,12 @@ def cmd_gather(cmd, set_env=None, realtime=False):
 
     logger.debug("Executing:cmd_gather {}".format(cmd_info))
     try:
+        from subprocess import DEVNULL  # Python 3.
+    except ImportError:
+        DEVNULL = open(os.devnull, 'wb')
+    try:
         proc = subprocess.Popen(
-            cmd_list, cwd=cwd, env=env,
+            cmd_list, cwd=cwd, env=env, stdin=DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     except OSError as exc:
         logger.error("Subprocess errored running:\n{}\nWith error:\n{}\nIs {} installed?".format(

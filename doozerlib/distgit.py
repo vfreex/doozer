@@ -34,7 +34,7 @@ OIT_BEGIN = '##OIT_BEGIN'
 OIT_END = '##OIT_END'
 
 CONTAINER_YAML_HEADER = """
-# This file is managed by doozer: https://gitlab.cee.redhat.com/openshift-art/tools/doozer
+# This file is managed by doozer: https://github.com/openshift/doozer
 # operated by the OpenShift Automated Release Tooling team (#aos-art on CoreOS Slack).
 
 # Any manual changes will be overwritten by doozer on the next build.
@@ -464,9 +464,13 @@ class ImageDistGitRepo(DistGitRepo):
             config.compose.packages.extend(packages)
             config.compose.packages = list(set(config.compose.packages) - exclude)  # ensure unique list
         elif package_mode == 'manual':
-            if not odcs.packages.list:
-                raise ValueError('odcs.packages.mode == manual but none specified in odcs.packages.list')
-            config.compose.packages = odcs.packages.list
+            #     if not odcs.packages.list:
+            #         raise ValueError('odcs.packages.mode == manual but none specified in odcs.packages.list')
+            #     config.compose.packages = odcs.packages.list
+            # elif package_mode == 'all':
+            # Per https://osbs.readthedocs.io/en/latest/users.html#compose,
+            # If "packages" key is declared but is empty,  the compose will include all packages from the Koji build tag of the Koji build target.
+            config.compose.packages = []
         elif package_mode == 'pre':
             pass  # nothing to do, packages were given from source
 
@@ -798,7 +802,7 @@ class ImageDistGitRepo(DistGitRepo):
                 if self.config.wait_for is not Missing:
                     self._set_wait_for(self.config.wait_for, terminate_event)
 
-                if self.runtime.local:
+                if self.runtime.local:  # FIXME: yuxzhu: here
                     self.build_status = self._build_container_local(target_image, repo_type, realtime)
                     if not self.build_status:
                         state.record_image_fail(self.runtime.state[self.runtime.command], self.metadata, 'Build failure', self.runtime.logger)
@@ -821,7 +825,7 @@ class ImageDistGitRepo(DistGitRepo):
                         # before trying another build, terminating if interrupted.
                         if terminate_event.wait(timeout=5 * 60):
                             raise KeyboardInterrupt()
-
+                    # FIXME: yuxzhu: here
                     exectools.retry(
                         retries=(1 if self.runtime.local else retries), wait_f=wait,
                         task_f=lambda: self._build_container(
@@ -941,7 +945,7 @@ class ImageDistGitRepo(DistGitRepo):
             "--nowait",
         )
 
-        if odcs:
+        if odcs: # FIXME: config in ocp-build-data
             if odcs == 'signed':
                 odcs = 'release'  # convenience option for those used to the old types
             cmd_list.append('--signing-intent')

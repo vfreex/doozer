@@ -35,6 +35,9 @@ from multiprocessing import cpu_count
 from dockerfile_parse import DockerfileParser
 from doozerlib import dotconfig
 
+# https://click.palletsprojects.com/en/7.x/python3/#unicode-literals
+click.disable_unicode_literals_warning = True
+
 CTX_GLOBAL = None
 
 pass_runtime = click.make_pass_decorator(Runtime)
