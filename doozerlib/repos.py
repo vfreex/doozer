@@ -311,7 +311,7 @@ class Repos(object):
             'Cache-Control': "no-cache"
         }
 
-        response = requests.request("POST", url, data=json.dumps(payload), headers=headers, verify=False)
+        response = requests.request("POST", url, data=json.dumps(payload), headers=headers)
 
         resp_dict = response.json()
 

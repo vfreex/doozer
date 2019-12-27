@@ -887,7 +887,7 @@ def images_build_image(runtime, odcs, repo_type, repo, push_to_defaults, push_to
 
     if not runtime.local:
         threads = None
-
+    # FIXME: yuxzhu fix here
     results = runtime.parallel_exec(
         lambda dgr, terminate_event: dgr.build_container(
             odcs, repo_type, repo, push_to_defaults, additional_registries=push_to,

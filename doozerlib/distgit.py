@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 from __future__ import unicode_literals
 import hashlib
-import json
 import os
 import shutil
 import time
@@ -13,6 +12,7 @@ import logging
 import bashlex
 import glob
 import re
+import copy
 from datetime import datetime, timedelta
 
 from dockerfile_parse import DockerfileParser
@@ -21,7 +21,7 @@ from . import logutil
 from . import assertion
 from . import exectools
 from .pushd import Dir
-from .brew import watch_task, check_rpm_buildroot
+from .brew import watch_task
 from .model import Model, Missing
 from doozerlib.exceptions import DoozerFatalError
 from doozerlib.util import yellow_print
@@ -331,150 +331,108 @@ class ImageDistGitRepo(DistGitRepo):
 
         return build_method
 
-    def _manage_container_config(self):
-        # Determine which image build method to use in OSBS.
-        # By default, specify nothing. use the OSBS default.
-        # If the group file config specifies a default, use that.
+    def _write_osbs_image_config(self):
+        # Writes OSBS image config (container.yaml).
+        # For more info about the format, see https://osbs.readthedocs.io/en/latest/users.html#image-configuration.
 
-        build_method = self.image_build_method
+        self.logger.info('Generating container.yaml')
+        container_config = self._generate_osbs_image_config()
 
-        container_config = self._generate_odcs_config() or {}
-        if build_method is not Missing:
-            container_config['image_build_method'] = build_method
-        if self.config.container_yaml is not Missing:
-            container_config.update(self.config.container_yaml)
-
-        if not container_config:
-            return  # no need to write empty file
+        if 'compose' in container_config:
+            self.logger.info("Rebasing with ODCS enabled for this image")
+        else:
+            self.logger.info("Rebasing with ODCS disabled")
 
         # generate yaml data with header
         content_yml = yaml.safe_dump(container_config, default_flow_style=False)
         with open('container.yaml', 'w') as rc:
             rc.write(CONTAINER_YAML_HEADER + content_yml)
 
-    def _generate_odcs_config(self):
+    def _generate_osbs_image_config(self):  # FIXME: image config section at https://osbs.readthedocs.io/en/latest/users.html#image-configuration
         """
-        Generates a compose conf file in container.yaml
+        Generates OSBS image config (container.yaml)
         Example in image yml file:
         odcs:
             packages:
-                mode: auto | manual (default)
-                # auto - detect packages in Dockerfile and merge with list below
-                # manual - only use list below. Ignore Dockerfile
-                exclude:  # when using auto mode, exclude these
-                  - package1
-                  - package2
+                mode: auto (default) | manual
+                # auto - If container.yaml with packages is given from source, use them.
+                #        Otherwise all packages with from the Koji build tag will be included.
+                # manual - only use list below
                 list:
                   - package1
                   - package2
-            platforms:
-                mode: auto | manual
-            config: ... # verbatim container.yaml content (see https://mojo.redhat.com/docs/DOC-1159997)
+        arches: # Optional list of image specific arches. If given, it must be a subset of group arches.
+          - x86_64
+          - s390x
+        container_yaml: ... # verbatim container.yaml content (see https://mojo.redhat.com/docs/DOC-1159997)
         """
 
-        arches = self.metadata.runtime.arches
-        if 'arches' in self.metadata.config:
-            arches = []
-            # only include arches from metadata that are
-            # valid globally
-            for a in self.metadata.config.arches:
-                if a in self.metadata.runtime.arches:
-                    arches.append(a)
-
-        if not self.runtime.odcs_mode:
-            config = {
-                'platforms': {'only': arches}
-            }
-            return config
-
-        no_source = self.config.content.source.alias is Missing
-        CYAML = 'build_container.yaml' if no_source else 'container.yaml'
-
-        # always delete from distgit
-        if os.path.exists(CYAML):
-            os.remove(CYAML)
-
-        if no_source:
-            source_container_yaml = CYAML
+        # list of platform (architecture) names to build this image for
+        arches = []  # type: list
+        global_arches = set(self.metadata.runtime.arches)
+        image_specific_arches = set(self.metadata.config.arches)
+        if not image_specific_arches:
+            # assume all global arches if no image specific arches are defined
+            arches = list(global_arches)
         else:
-            source_container_yaml = os.path.join(self.source_path(), CYAML)
-        if os.path.isfile(source_container_yaml):
-            with open(source_container_yaml, 'r') as scy:
-                source_container_yaml = yaml.full_load(scy)
-        else:
-            source_container_yaml = {}
+            # only include arches from metadata that are valid globally
+            missing_arches = image_specific_arches - global_arches
+            if missing_arches:
+                raise ValueError("Image specific arches ({}) are not enabled in group.yml.".format(", ".join(missing_arches)))
+            arches = list(image_specific_arches)
 
-        self.logger.info("Generating compose file for Dockerfile {}".format(self.metadata.distgit_key))
+        # override image config with this dict
+        config_overrides = {}
+        if self.config.container_yaml is not Missing:
+            config_overrides = copy.deepcopy(self.config.container_yaml.primitive())
+        if self.image_build_method is not Missing:
+            config_overrides['image_build_method'] = self.image_build_method
+        if arches:
+            config_overrides.setdefault('platforms', {})['only'] = arches
+
+        if not self.runtime.group_config.doozer_feature_gates.odcs_enabled and not self.runtime.odcs_mode:
+            # ODCS mode is not enabled
+            return config_overrides
 
         odcs = self.config.odcs
         if odcs is Missing:
-            odcs = Model()
+            # image yml doesn't have `odcs` field defined
+            if self.runtime.group_config.doozer_feature_gates.odcs_aggressive:
+                self.logger.warning("Enforce ODCS auto mode because odcs_aggressive feature gate is on")
+            else:
+                # Doozer's odcs_aggressive feature gate is off, disable ODCS mode for this image
+                return config_overrides
 
-        package_mode = odcs.packages.get('mode', 'auto').lower()
+        package_mode = odcs.packages.get('mode', 'auto')
         valid_package_modes = ['auto', 'manual']
         if package_mode not in valid_package_modes:
-            raise ValueError('odcs.packages.mode must be one of {}'.format(str(valid_package_modes)))
+            raise ValueError('odcs.packages.mode must be one of {}'.format(', '.join(valid_package_modes)))
 
-        config = source_container_yaml
-        if 'compose' not in config:
-            config['compose'] = {}
-
-        if config['compose'].get('packages', []):
-            package_mode = 'pre'  # container.yaml with packages was given
-        compose_content = {
-            'packages': [],
-            'pulp_repos': True
-        }
+        # generate container.yaml content for ODCS
+        config = {}
+        if self.has_source():  # if upstream source provides container.yaml, load it.
+            source_container_yaml = os.path.join(self.source_path(), 'container.yaml')
+            if os.path.isfile(source_container_yaml):
+                with open(source_container_yaml, 'r') as scy:
+                    config = yaml.full_load(scy)
 
         # ensure defaults
-        for k, v in compose_content.iteritems():
-            if k not in config['compose']:
-                config['compose'][k] = v
+        config.setdefault('compose', {}).setdefault('pulp_repos', True)
 
-        # always overwrite platforms so we control it
-        config['platforms'] = {'only': arches}
-
-        config = Model(config)
-
+        # create package list for ODCS, see https://osbs.readthedocs.io/en/latest/users.html#compose
         if package_mode == 'auto':
-            packages = []
-            for rpm in self.metadata.get_rpm_install_list():
-                res = []
-                # ODCS is fine with a mix of packages that are only available in a single arch
-                for arch in self.metadata.runtime.arches:
-                    res_arch = check_rpm_buildroot(rpm, self.branch, arch)
-                    if res_arch:
-                        if isinstance(res_arch, list):
-                            res.extend(res_arch)
-                        else:
-                            res.append(res_arch)
-
-                res = list(set(res))
-                if res:
-                    packages.extend(res)
-
-            if odcs.packages.list:
-                config.compose.packages.extend(odcs.packages.list)
-
-            if odcs.packages.exclude:
-                exclude = set(odcs.packages.exclude)
+            if config["compose"].get("packages") is list:
+                pass  # container.yaml with packages was given from source
             else:
-                exclude = set([])
-
-            config.compose.packages.extend(packages)
-            config.compose.packages = list(set(config.compose.packages) - exclude)  # ensure unique list
+                config["compose"]["packages"] = []  # empty list donates all packages from the Koji build tag
         elif package_mode == 'manual':
-            #     if not odcs.packages.list:
-            #         raise ValueError('odcs.packages.mode == manual but none specified in odcs.packages.list')
-            #     config.compose.packages = odcs.packages.list
-            # elif package_mode == 'all':
-            # Per https://osbs.readthedocs.io/en/latest/users.html#compose,
-            # If "packages" key is declared but is empty,  the compose will include all packages from the Koji build tag of the Koji build target.
-            config.compose.packages = []
-        elif package_mode == 'pre':
-            pass  # nothing to do, packages were given from source
+            if not odcs.packages.list:
+                raise ValueError('odcs.packages.mode == manual but none specified in odcs.packages.list')
+            config["compose"]["packages"] = list(odcs.packages.list)
 
-        return config.primitive()
+        # apply overrides
+        config.update(config_overrides)
+        return config
 
     def _write_cvp_owners(self):
         """
@@ -884,7 +842,7 @@ class ImageDistGitRepo(DistGitRepo):
         The part of `build_container` which actually starts the build,
         separated for clarity. Local build version.
         """
-
+        # FIXME: yuxzhu: fix here
         if self.image_build_method == 'imagebuilder':
             builder = 'imagebuilder -mount '
         else:
@@ -931,7 +889,7 @@ class ImageDistGitRepo(DistGitRepo):
         """
         self.logger.info("Building image: %s" % target_image)
         cmd_list = ["rhpkg"]
-
+        # FIXME: yuxzhu: fix here
         if self.runtime.rhpkg_config_lst:
             cmd_list.extend(self.runtime.rhpkg_config_lst)
 
@@ -943,9 +901,10 @@ class ImageDistGitRepo(DistGitRepo):
         cmd_list += (
             "container-build",
             "--nowait",
+            "--dry-run",
         )
 
-        if odcs: # FIXME: config in ocp-build-data
+        if odcs:  # FIXME: yuxzhu: config in ocp-build-data
             if odcs == 'signed':
                 odcs = 'release'  # convenience option for those used to the old types
             cmd_list.append('--signing-intent')
@@ -1193,7 +1152,7 @@ class ImageDistGitRepo(DistGitRepo):
 
             self._generate_repo_conf()
 
-            self._manage_container_config()
+            self._write_osbs_image_config()
 
             self._write_cvp_owners()
 

@@ -187,9 +187,6 @@ mapping:
             "list":
               sequence:
                 - type: str
-            "exclude":
-              sequence:
-                - type: str
 
   "container_yaml":
       type: map

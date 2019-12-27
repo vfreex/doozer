@@ -954,12 +954,16 @@ class Runtime(object):
         return re.match(r"^v\d+((\.\d+)+)?$", version) is not None
 
     @classmethod
-    def _parallel_exec(self, f, args, n_threads):
+    def _parallel_exec(cls, f, args, n_threads, timeout=None):
         pool = ThreadPool(n_threads)
         ret = pool.map_async(wrap_exception(f), args)
         pool.close()
-        pool.join()
-        return ret
+        if timeout is None:
+            # If a timeout is not specified, the KeyboardInterrupt exception won't be delivered.
+            # Use polling as a workaround. See https://stackoverflow.com/questions/1408356/keyboard-interrupts-with-pythons-multiprocessing-pool.
+            while not ret.ready():
+                ret.wait(60)
+        return ret.get(timeout)
 
     def clone_distgits(self, n_threads=None):
         if n_threads is None:
@@ -967,7 +971,7 @@ class Runtime(object):
         return self._parallel_exec(
             lambda m: m.distgit_repo(),
             self.all_metas(),
-            n_threads=n_threads).get()
+            n_threads=n_threads)
 
     def push_distgits(self, n_threads=None):
         self.assert_mutation_is_permitted()
@@ -977,7 +981,7 @@ class Runtime(object):
         return self._parallel_exec(
             lambda m: m.distgit_repo().push(),
             self.all_metas(),
-            n_threads=n_threads).get()
+            n_threads=n_threads)
 
     def parallel_exec(self, f, args, n_threads=None):
         n_threads = n_threads if n_threads is not None else len(args)
