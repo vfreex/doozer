@@ -801,11 +801,17 @@ class Runtime(object):
         clone_branch, _ = self.detect_remote_source_branch(source_details)
 
         url = source_details["url"]
+
+        self.logger.info("Attempting to checkout source '%s' branch %s in: %s" % (url, clone_branch, source_dir))
+        set_env = {  # never prompt on the terminal
+            "GIT_SSH_COMMAND": "ssh -oBatchMode=yes",
+            "GIT_TERMINAL_PROMPT": "0",
+        }
         try:
-            self.logger.info("Attempting to checkout source '%s' branch %s in: %s" % (url, clone_branch, source_dir))
             exectools.cmd_assert(
                 # get a little history to enable finding a recent Dockerfile change, but not too much.
                 "git clone -b {} --single-branch {} --depth 50 {}".format(clone_branch, url, source_dir),
+                set_env=set_env,
                 retries=3,
                 on_retry=["rm", "-rf", source_dir],
             )

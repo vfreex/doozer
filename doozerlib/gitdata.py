@@ -138,8 +138,12 @@ class GitData(object):
                     shutil.rmtree(data_destination)
                 self.logger.info('Cloning config data from {}'.format(self.data_path))
                 if not os.path.isdir(data_destination):
+                    set_env = {  # never prompt on the terminal
+                        "GIT_SSH_COMMAND": "ssh -oBatchMode=yes",
+                        "GIT_TERMINAL_PROMPT": "0",
+                    }
                     cmd = "git clone -b {} --depth 1 {} {}".format(self.branch, self.data_path, data_destination)
-                    rc, out, err = exectools.cmd_gather(cmd)
+                    rc, out, err = exectools.cmd_gather(cmd, set_env=set_env)
                     if rc:
                         raise GitDataException('Error while cloning data: {}'.format(err))
 

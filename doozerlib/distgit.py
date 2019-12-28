@@ -165,7 +165,11 @@ class DistGitRepo(object):
                     self.logger.info("Cloning distgit repository [branch:%s] into: %s" % (distgit_branch, self.distgit_dir))
 
                     # Clone the distgit repository. Occasional flakes in clone, so use retry.
-                    exectools.cmd_assert(cmd_list, retries=3)
+                    set_env = { # never prompt on the terminal
+                        "GIT_SSH_COMMAND": "ssh -oBatchMode=yes",
+                        "GIT_TERMINAL_PROMPT": "0",
+                    }
+                    exectools.cmd_assert(cmd_list, retries=3, set_env=set_env)
 
     def merge_branch(self, target, allow_overwrite=False):
         self.logger.info('Switching to branch: {}'.format(target))
