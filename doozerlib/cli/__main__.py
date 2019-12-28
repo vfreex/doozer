@@ -795,8 +795,6 @@ def print_build_metrics(runtime):
 
 
 @cli.command("images:build", short_help="Build images for the group.")
-@click.option("--odcs", default=None, metavar="ODCS",
-              help="ODCS signing intent (e.g. signed, unsigned).")
 @click.option("--repo-type", metavar="REPO_TYPE", envvar="OIT_IMAGES_REPO_TYPE",
               default='unsigned',
               help="Repo type (e.g. signed, unsigned).")
@@ -810,7 +808,7 @@ def print_build_metrics(runtime):
 @click.option("--threads", default=1, metavar="NUM_THREADS",
               help="Number of concurrent builds to execute. Only valid for --local builds.")
 @pass_runtime
-def images_build_image(runtime, odcs, repo_type, repo, push_to_defaults, push_to, scratch, threads):
+def images_build_image(runtime, repo_type, repo, push_to_defaults, push_to, scratch, threads):
     """
     Attempts to build container images for all of the distgit repositories
     in a group. If an image has already been built, it will be treated as
@@ -887,10 +885,10 @@ def images_build_image(runtime, odcs, repo_type, repo, push_to_defaults, push_to
 
     if not runtime.local:
         threads = None
-    # FIXME: yuxzhu fix here
+    # FIXME: yuxzhu: build_container is called here.
     results = runtime.parallel_exec(
         lambda dgr, terminate_event: dgr.build_container(
-            odcs, repo_type, repo, push_to_defaults, additional_registries=push_to,
+            repo_type, repo, push_to_defaults, additional_registries=push_to,
             terminate_event=terminate_event, scratch=scratch, realtime=(threads == 1)),
         items, n_threads=threads)
     results = results.get()

@@ -692,7 +692,7 @@ class ImageDistGitRepo(DistGitRepo):
             raise KeyboardInterrupt()
 
     def build_container(
-            self, odcs, repo_type, repo, push_to_defaults, additional_registries, terminate_event,
+            self, repo_type, repo, push_to_defaults, additional_registries, terminate_event,
             scratch=False, retries=3, realtime=False):
         """
         This method is designed to be thread-safe. Multiple builds should take place in brew
@@ -760,7 +760,7 @@ class ImageDistGitRepo(DistGitRepo):
                 if self.config.wait_for is not Missing:
                     self._set_wait_for(self.config.wait_for, terminate_event)
 
-                if self.runtime.local:  # FIXME: yuxzhu: here
+                if self.runtime.local:
                     self.build_status = self._build_container_local(target_image, repo_type, realtime)
                     if not self.build_status:
                         state.record_image_fail(self.runtime.state[self.runtime.command], self.metadata, 'Build failure', self.runtime.logger)
@@ -787,7 +787,7 @@ class ImageDistGitRepo(DistGitRepo):
                     exectools.retry(
                         retries=(1 if self.runtime.local else retries), wait_f=wait,
                         task_f=lambda: self._build_container(
-                            target_image, odcs, repo_type, repo, terminate_event,
+                            target_image, repo_type, repo, terminate_event,
                             scratch, record))
 
             # Just in case someone else is building an image, go ahead and find what was just
@@ -881,7 +881,7 @@ class ImageDistGitRepo(DistGitRepo):
         return True
 
     def _build_container(
-            self, target_image, odcs, repo_type, repo_list, terminate_event,
+            self, target_image, repo_type, repo_list, terminate_event,
             scratch, record):
         """
         The part of `build_container` which actually starts the build,
@@ -889,7 +889,6 @@ class ImageDistGitRepo(DistGitRepo):
         """
         self.logger.info("Building image: %s" % target_image)
         cmd_list = ["rhpkg"]
-        # FIXME: yuxzhu: fix here
         if self.runtime.rhpkg_config_lst:
             cmd_list.extend(self.runtime.rhpkg_config_lst)
 
@@ -901,23 +900,34 @@ class ImageDistGitRepo(DistGitRepo):
         cmd_list += (
             "container-build",
             "--nowait",
-            "--dry-run",
         )
 
-        if odcs:  # FIXME: yuxzhu: config in ocp-build-data
-            if odcs == 'signed':
-                odcs = 'release'  # convenience option for those used to the old types
-            cmd_list.append('--signing-intent')
-            cmd_list.append(odcs)
+        # Determine if ODCS is enabled by looking at container.yaml.
+        odcs_enabled = False
+        osbs_image_config_path = os.path.join(self.distgit_dir, "container.yaml")
+        if os.path.isfile(osbs_image_config_path):
+            with open(osbs_image_config_path, "r") as f:
+                image_config = yaml.safe_load(f)
+            odcs_enabled = "compose" in image_config
+
+        if odcs_enabled:
+            self.logger.info("About to build image in ODCS mode.")
+            if repo_type == 'signed':
+                signing_intent = 'release'
+            else:
+                signing_intent = repo_type
+            if signing_intent:
+                cmd_list.append('--signing-intent')
+                cmd_list.append(signing_intent)
         else:
             if repo_type:
                 repo_list = list(repo_list)  # In case we get a tuple
                 repo_list.append(self.metadata.cgit_url(".oit/" + repo_type + ".repo"))
 
-            if repo_list:
-                # rhpkg supports --repo-url [URL [URL ...]]
-                cmd_list.append("--repo-url")
-                cmd_list.extend(repo_list)
+        if repo_list:  # Current OSBS versions support the combination of ODCS composes with repository files.
+            # rhpkg supports --repo-url [URL [URL ...]]
+            cmd_list.append("--repo-url")
+            cmd_list.extend(repo_list)
 
         if scratch:
             cmd_list.append("--scratch")
