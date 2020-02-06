@@ -907,6 +907,9 @@ class ImageDistGitRepo(DistGitRepo):
             "--nowait",  # Run the build with --nowait so that we can immediately get information about the brew task
         )
 
+        if self.runtime.target:
+            cmd_list.append("--target=%s" % self.runtime.target)
+
         # Determine if ODCS is enabled by looking at container.yaml.
         odcs_enabled = False
         osbs_image_config_path = os.path.join(self.distgit_dir, "container.yaml")

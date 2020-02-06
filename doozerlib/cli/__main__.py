@@ -128,6 +128,8 @@ def print_version(ctx, param, value):
               help="Path to rhpkg config file to use instead of system default")
 @click.option("--brew-tag", metavar="BREW_TAG",
               help="Override brew tag to expect for images built")
+@click.option("--target", metavar="BREW_TARGET",
+              help="Override brew target")
 @click.pass_context
 def cli(ctx, **kwargs):
     global CTX_GLOBAL
