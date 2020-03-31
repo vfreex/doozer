@@ -1732,6 +1732,7 @@ that particular tag.
             def add_tag_image(arch, arch_image):
                 # mirroring[arch][tag_name] = image_url
                 mirroring[arch] = mirroring.get(arch, {})
+                print(f"yuxzhu debug - Adding image {tag_name} for arch {arch}...")
                 mirroring[arch][tag_name] = {'version': version, 'release': release, 'image_src': arch_image}
 
             # A manifest.list is a list of images for different arches
