@@ -6,3 +6,5 @@ GIT_NO_PROMPTS = {
     "GIT_SSH_COMMAND": "ssh -oBatchMode=yes",
     "GIT_TERMINAL_PROMPT": "0",
 }
+
+BREW_HUB = "https://brewhub.engineering.redhat.com/brewhub"

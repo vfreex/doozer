@@ -16,6 +16,7 @@ import traceback
 
 from . import exectools
 from . import logutil
+from . import constants
 
 # 3rd party
 import click
@@ -82,3 +83,22 @@ def watch_task(brew_hub, log_f, task_id, terminate_event):
     log_f(error + ", canceling build")
     subprocess.check_call(("brew", "cancel", str(task_id)))
     return error
+
+
+def get_build_objects(ids_or_nvrs, session=None):
+    """Get information of multiple Koji/Brew builds
+
+    :param ids_or_nvrs: list of build nvr strings or numbers.
+    :param session: instance of :class:`koji.ClientSession`
+    :return: a list Koji/Brew build objects
+    """
+    logger.debug(
+        "Fetching build info for {} from Koji/Brew...".format(ids_or_nvrs))
+    if not session:
+        session = koji.ClientSession(constants.BREW_HUB)
+    # Use Koji multicall interface to boost performance. See https://pagure.io/koji/pull-request/957
+    tasks = []
+    with session.multicall(strict=True) as m:
+        for b in ids_or_nvrs:
+            tasks.append(m.getBuild(b))
+    return [task.result for task in tasks]
