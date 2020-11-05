@@ -35,7 +35,7 @@ def config_scan_source_changes(runtime, ci_kubeconfig, as_yaml):
     \b
     It will report machine-os-content updates available per imagestream.
     """
-    runtime.initialize(mode='both', clone_distgits=True)
+    runtime.initialize(mode='rpms', clone_distgits=True)
 
     all_rpm_metas = set(runtime.rpm_metas())
     all_image_metas = set(runtime.image_metas())

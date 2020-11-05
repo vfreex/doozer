@@ -14,12 +14,10 @@ RUN dnf install -y \
     # provides en_US.UTF-8 locale required by tito
     glibc-langpack-en \
     # development dependencies
-    gcc krb5-devel openssl-devel \
+    gcc krb5-devel openssl-devel libgit2-devel \
     python3-devel python3-pip \
-    # Microsoft Python Language Server requires .NET Core 2.1 or later
-    dotnet-runtime-3.1 \
-    # other tools
-    bash-completion vim tmux procps-ng psmisc wget net-tools iproute \
+    # other tools for development and troubleshooting
+    bash-completion vim tmux procps-ng psmisc wget net-tools iproute socat \
     # install rcm-tools
     koji brewkoji rhpkg \
  && dnf clean all
@@ -53,10 +51,10 @@ RUN groupadd --gid "$USER_GID" "$USERNAME" \
 COPY .devcontainer/krb5-redhat.conf /etc/krb5.conf.d/
 
 # Preinstall dependencies
-COPY ./ /tmp/doozer/
-RUN chown "$USERNAME" -R /tmp/doozer \
- && pushd /tmp/doozer \
- && sudo -u "$USERNAME" pip3 install --user -r ./requirements.txt -r requirements-dev.txt ./ \
- && popd && rm -rf /tmp/doozer
+# COPY ./ /tmp/doozer/
+# RUN chown "$USERNAME" -R /tmp/doozer \
+#  && pushd /tmp/doozer \
+#  && sudo -u "$USERNAME" pip3 install --user -r ./requirements.txt -r requirements-dev.txt ./ \
+#  && popd && rm -rf /tmp/doozer
 
 USER "$USER_UID"

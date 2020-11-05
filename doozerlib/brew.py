@@ -2,6 +2,7 @@
 Utility functions for general interactions with Brew and Builds
 """
 from __future__ import absolute_import, print_function, unicode_literals
+from logging import log
 
 # stdlib
 import time
@@ -79,6 +80,65 @@ def watch_task(brew_hub, log_f, task_id, terminate_event):
     log_f(error + ", canceling build")
     subprocess.check_call(("brew", "cancel", str(task_id)))
     return error
+
+
+def watch_tasks(brew_hub, log_f, task_ids, terminate_event):
+    if not task_ids:
+        return
+    end = time.time() + 4 * 60 * 60
+    session = koji.ClientSession(brew_hub, opts={'serverca': '/etc/pki/brew/legacy.crt'})
+    watchers = {}
+    errors = {}
+    except_counts = {}
+    for task_id in task_ids:
+        watchers[task_id] = koji_cli.lib.TaskWatcher(task_id, session, quiet=True)
+        except_counts[task_id] = 0
+    tasks_to_poll = set(watchers.keys())
+    tasks_to_cancel = set()
+    while True:
+        for task_id in tasks_to_poll.copy():
+            watcher = watchers[task_id]
+            try:
+                watcher.update()
+                except_counts[task_id] = 0
+                # Keep around metrics for each task we watch
+                with watch_task_lock:
+                    watch_task_info[task_id] = dict(watcher.info)
+                if watcher.is_done():
+                    errors[task_id] = None if watcher.is_success() else watcher.get_failure()
+                    tasks_to_poll.remove(task_id)
+                log_f(f"Task {task_id} state: {koji.TASK_STATES[watcher.info['state']]}")
+            except:
+                except_counts[task_id] += 1
+                # possible for watcher.update() to except during connection issue, try again
+                log_f('watcher.update() exception. Trying again in 60s.\n{}'.format(traceback.format_exc()))
+                if except_counts[task_id] >= 10:
+                    log_f('watcher.update() excepted 10 times. Giving up.')
+                    errors[task_id] = traceback.format_exc()
+                    tasks_to_cancel.add(task_id)
+                    tasks_to_poll.remove(task_id)
+        if not tasks_to_poll:
+            break
+        if terminate_event.wait(timeout=3 * 60):
+            for task_id in tasks_to_poll:
+                tasks_to_cancel.add(task_id)
+                errors[task_id] = 'Interrupted'
+            break
+        if time.time() > end:
+            for task_id in tasks_to_poll:
+                tasks_to_cancel.add(task_id)
+                errors[task_id] = 'Timeout watching task'
+            break
+    if tasks_to_cancel:
+        log_f(errors + ", canceling builds")
+        for task_id in tasks_to_poll:
+            log_f(f"Error waiting for Brew task {task_id}: {errors[task_id]}. Canceling...")
+            canceled = session.cancelTask(task_id, recurse=True)
+            if canceled:
+                log_f(f"Brew task {task_id} was canceled.")
+            else:
+                log_f(f"Brew task {task_id} was NOT canceled.")
+    return errors
 
 
 def get_build_objects(ids_or_nvrs, session):
